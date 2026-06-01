@@ -27,7 +27,7 @@ def _get_base_url():
     except Exception:
         return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-client = OpenAI(api_key=_get_api_key(), base_url=_get_base_url())
+client = OpenAI(api_key=_get_api_key(), base_url=_get_base_url(), timeout=60, max_retries=2)
 
 VISION_MODEL = "qwen/qwen-2.5-vl-72b-instruct"
 TEXT_MODEL = "qwen/qwen-2.5-vl-72b-instruct"

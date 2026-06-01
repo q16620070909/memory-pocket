@@ -26,7 +26,7 @@ def _get_base_url():
     except Exception:
         return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-client = OpenAI(api_key=_get_api_key(), base_url=_get_base_url())
+client = OpenAI(api_key=_get_api_key(), base_url=_get_base_url(), timeout=60, max_retries=2)
 
 
 def natural_search(query: str, limit: int = 20) -> list[dict]:
