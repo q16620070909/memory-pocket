@@ -50,7 +50,7 @@ def _extract_keywords(query: str) -> list[str]:
     """用 AI 把自然语言查询拆成搜索关键词。"""
     try:
         response = client.chat.completions.create(
-            model="qwen-plus",
+            model="qwen-turbo",
             messages=[{
                 "role": "system",
                 "content": (

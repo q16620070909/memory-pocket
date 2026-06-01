@@ -26,8 +26,8 @@ client = OpenAI(
     timeout=90, max_retries=3,
 )
 
-VISION_MODEL = "qwen-vl-max"
-TEXT_MODEL = "qwen-plus"
+VISION_MODEL = "qwen-vl-plus"
+TEXT_MODEL = "qwen-turbo"
 
 import time
 def _call_ai_with_retry(model, messages, max_tokens=800, temperature=0.3):
