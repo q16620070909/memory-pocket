@@ -12,21 +12,14 @@ from storage import search_memories
 
 load_dotenv(Path(__file__).parent / ".env")
 
-def _get_api_key():
+def _get_zhipu_key():
     try:
         import streamlit as st
-        return st.secrets["OPENROUTER_API_KEY"]
+        return st.secrets["ZHIPU_API_KEY"]
     except Exception:
-        return os.getenv("OPENROUTER_API_KEY")
+        return os.getenv("ZHIPU_API_KEY", "3b7fe9a4fcba4bc789c2920fb75c49ad.P9jy6lrtKTSl7ZPy")
 
-def _get_base_url():
-    try:
-        import streamlit as st
-        return st.secrets.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    except Exception:
-        return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-
-client = OpenAI(api_key=_get_api_key(), base_url=_get_base_url(), timeout=60, max_retries=2)
+client = OpenAI(api_key=_get_zhipu_key(), base_url="https://open.bigmodel.cn/api/paas/v4/", timeout=60, max_retries=2)
 
 
 def natural_search(query: str, limit: int = 20) -> list[dict]:
@@ -57,7 +50,7 @@ def _extract_keywords(query: str) -> list[str]:
     """用 AI 把自然语言查询拆成搜索关键词。"""
     try:
         response = client.chat.completions.create(
-            model="qwen/qwen-2.5-vl-72b-instruct",
+            model="glm-4-flash",
             messages=[{
                 "role": "system",
                 "content": (

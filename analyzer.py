@@ -16,21 +16,21 @@ load_dotenv(Path(__file__).parent / ".env")
 def _get_api_key():
     try:
         import streamlit as st
-        return st.secrets["OPENROUTER_API_KEY"]
+        return st.secrets["ZHIPU_API_KEY"]
     except Exception:
-        return os.getenv("OPENROUTER_API_KEY")
+        return os.getenv("ZHIPU_API_KEY", "3b7fe9a4fcba4bc789c2920fb75c49ad.P9jy6lrtKTSl7ZPy")
 
 def _get_base_url():
     try:
         import streamlit as st
-        return st.secrets.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        return st.secrets.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
     except Exception:
-        return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        return os.getenv("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
 
 client = OpenAI(api_key=_get_api_key(), base_url=_get_base_url(), timeout=60, max_retries=2)
 
-VISION_MODEL = "qwen/qwen-2.5-vl-72b-instruct"
-TEXT_MODEL = "qwen/qwen-2.5-vl-72b-instruct"
+VISION_MODEL = "glm-4v-flash"   # 智谱免费多模态模型
+TEXT_MODEL = "glm-4-flash"      # 智谱免费文本模型
 
 # ============================================================
 # 标签配置管理
