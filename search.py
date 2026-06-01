@@ -12,14 +12,14 @@ from storage import search_memories
 
 load_dotenv(Path(__file__).parent / ".env")
 
-def _get_zhipu_key():
+def _get_qwen_key():
     try:
         import streamlit as st
-        return st.secrets["ZHIPU_API_KEY"]
+        return st.secrets["QWEN_API_KEY"]
     except Exception:
-        return os.getenv("ZHIPU_API_KEY", "3b7fe9a4fcba4bc789c2920fb75c49ad.P9jy6lrtKTSl7ZPy")
+        return os.getenv("QWEN_API_KEY", "sk-3cd556e2ad0647998f5336c8134e5846")
 
-client = OpenAI(api_key=_get_zhipu_key(), base_url="https://open.bigmodel.cn/api/paas/v4/", timeout=60, max_retries=2)
+client = OpenAI(api_key=_get_qwen_key(), base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", timeout=60, max_retries=2)
 
 
 def natural_search(query: str, limit: int = 20) -> list[dict]:
@@ -50,7 +50,7 @@ def _extract_keywords(query: str) -> list[str]:
     """用 AI 把自然语言查询拆成搜索关键词。"""
     try:
         response = client.chat.completions.create(
-            model="glm-4-flash",
+            model="qwen-plus",
             messages=[{
                 "role": "system",
                 "content": (

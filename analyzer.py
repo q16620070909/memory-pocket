@@ -6,85 +6,28 @@
 import os
 import base64
 import json
-import threading
-import http.server
-import socket
 from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-def _get_api_key():
+def _get_qwen_key():
     try:
         import streamlit as st
-        return st.secrets["ZHIPU_API_KEY"]
+        return st.secrets["QWEN_API_KEY"]
     except Exception:
-        return os.getenv("ZHIPU_API_KEY", "3b7fe9a4fcba4bc789c2920fb75c49ad.P9jy6lrtKTSl7ZPy")
+        return os.getenv("QWEN_API_KEY", "sk-3cd556e2ad0647998f5336c8134e5846")
 
-client = OpenAI(api_key=_get_api_key(), base_url="https://open.bigmodel.cn/api/paas/v4/", timeout=60, max_retries=2)
+# 通义千问 DashScope（OpenAI 兼容，支持 base64 图片）
+client = OpenAI(
+    api_key=_get_qwen_key(),
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    timeout=60, max_retries=2,
+)
 
-VISION_MODEL = "glm-4v-flash"
-TEXT_MODEL = "glm-4-flash"
-
-# ============================================================
-# 本地图片 HTTP 服务（解决智谱不支持 base64 的问题）
-# ============================================================
-
-_image_server_port = None
-
-def _start_image_server():
-    """在后台启动一个微型 HTTP 服务器，把 images/ 目录暴露出去。"""
-    global _image_server_port
-    if _image_server_port is not None:
-        return _image_server_port
-
-    images_dir = str(Path(__file__).parent / "images")
-    os.makedirs(images_dir, exist_ok=True)
-
-    # 找一个空闲端口
-    sock = socket.socket()
-    sock.bind(("", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-
-    handler = lambda *args: http.server.SimpleHTTPRequestHandler(*args, directory=images_dir)
-    server = http.server.HTTPServer(("127.0.0.1", port), handler)
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-
-    _image_server_port = port
-    return port
-
-
-def _image_to_url(image_path: str) -> str:
-    """把本地图片路径转成可访问的 URL。本地用 HTTP 服务器，云端用 Telegraph 图床。"""
-    try:
-        # 先试本地 HTTP 服务器
-        port = _start_image_server()
-        filename = Path(image_path).name
-        return f"http://127.0.0.1:{port}/{filename}"
-    except Exception:
-        # 云端环境：上传到免费图床
-        return _upload_to_telegraph(image_path)
-
-
-def _upload_to_telegraph(image_path: str) -> str:
-    """上传图片到 Telegraph（Telegram 的免费图床，无需 API Key）。"""
-    import requests
-    with open(image_path, "rb") as f:
-        resp = requests.post(
-            "https://telegra.ph/upload",
-            files={"file": (Path(image_path).name, f, "image/jpeg")},
-            timeout=10
-        )
-    if resp.status_code == 200:
-        data = resp.json()
-        if isinstance(data, list) and len(data) > 0:
-            return "https://telegra.ph" + data[0]["src"]
-        elif isinstance(data, dict) and "src" in data:
-            return "https://telegra.ph" + data["src"]
-    raise Exception(f"图床上传失败: {resp.status_code}")
+VISION_MODEL = "qwen-vl-max"
+TEXT_MODEL = "qwen-plus"
 
 # ============================================================
 # 标签配置管理
@@ -264,14 +207,13 @@ def analyze_image(image_path: str) -> dict:
     """分析一张图片 → 类型+标签+信息"""
     exif = extract_exif(image_path)
 
-    # 智谱不支持 base64，用 HTTP URL
-    try:
-        image_url = _image_to_url(image_path)
-    except Exception:
-        image_url = None
-
-    if not image_url:
-        return {"类型":"其他","标签":["分析失败"],"信息":{"错误":"无法生成图片URL"},"一句话":"分析失败"}
+    # 通义千问支持 base64 图片
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("utf-8")
+    ext = Path(image_path).suffix.lower()
+    mime_map = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".webp":"image/webp"}
+    mime_type = mime_map.get(ext, "image/jpeg")
+    data_url = f"data:{mime_type};base64,{image_data}"
 
     try:
         response = client.chat.completions.create(
@@ -279,7 +221,7 @@ def analyze_image(image_path: str) -> dict:
             messages=[
                 {"role":"system","content":_build_prompt(SYSTEM_PROMPT_VISION)},
                 {"role":"user","content":[
-                    {"type":"image_url","image_url":{"url":image_url}},
+                    {"type":"image_url","image_url":{"url":data_url}},
                     {"type":"text","text":"看这张图，返回JSON。"}
                 ]}
             ],
@@ -556,15 +498,19 @@ def analyze_image_two_pass(image_path: str) -> dict:
 
     用户只看到最终结果。
     """
-    try:
-        image_url = _image_to_url(image_path)
+    with open(image_path, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
+    ext = Path(image_path).suffix.lower()
+    mime_map = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".webp":"image/webp"}
+    data_url = f"data:{mime_map.get(ext,'image/jpeg')};base64,{img_b64}"
 
+    try:
         # ---- 第1轮：看图识别 ----
         r1 = client.chat.completions.create(
             model=VISION_MODEL,
             messages=[
                 {"role":"system","content":ROUND1_PROMPT},
-                {"role":"user","content":[{"type":"image_url","image_url":{"url":image_url}},{"type":"text","text":"分析这张图"}]}
+                {"role":"user","content":[{"type":"image_url","image_url":{"url":data_url}},{"type":"text","text":"分析这张图"}]}
             ],
             temperature=0.3, max_tokens=500,
         )
@@ -587,7 +533,7 @@ def analyze_image_two_pass(image_path: str) -> dict:
             messages=[
                 {"role":"system","content":r2_prompt},
                 {"role":"user","content":[
-                    {"type":"image_url","image_url":{"url":image_url}},
+                    {"type":"image_url","image_url":{"url":data_url}},
                     {"type":"text","text":context}
                 ]}
             ],
@@ -655,7 +601,11 @@ def analyze_image_conversation(image_path: str, chat_history: list[dict] | None 
         dict: {"回复": "AI的文本回复", "结果": {...}或None}
               如果"结果"不为 None，说明 AI 已经完成了信息提取
     """
-    image_url = _image_to_url(image_path)
+    with open(image_path, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
+    ext = Path(image_path).suffix.lower()
+    mime_map = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".webp":"image/webp"}
+    data_url = f"data:{mime_map.get(ext,'image/jpeg')};base64,{img_b64}"
     is_first_turn = not chat_history or len(chat_history) == 0
 
     # 构建消息
@@ -669,7 +619,7 @@ def analyze_image_conversation(image_path: str, chat_history: list[dict] | None 
                 messages.append({
                     "role":"user",
                     "content":[
-                        {"type":"image_url","image_url":{"url":image_url}},
+                        {"type":"image_url","image_url":{"url":data_url}},
                         {"type":"text","text":msg["content"]}
                     ]
                 })
@@ -680,7 +630,7 @@ def analyze_image_conversation(image_path: str, chat_history: list[dict] | None 
         messages.append({
             "role":"user",
             "content":[
-                {"type":"image_url","image_url":{"url":image_url}},
+                {"type":"image_url","image_url":{"url":data_url}},
                 {"type":"text","text":"看看这张图，告诉我你看到了什么，问我想做什么。"}
             ]
         })
