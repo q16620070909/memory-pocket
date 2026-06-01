@@ -17,7 +17,7 @@ def _get_qwen_key():
         import streamlit as st
         return st.secrets["QWEN_API_KEY"]
     except Exception:
-        return os.getenv("QWEN_API_KEY", "sk-3cd556e2ad0647998f5336c8134e5846")
+        return os.getenv("QWEN_API_KEY", "")
 
 client = OpenAI(api_key=_get_qwen_key(), base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", timeout=60, max_retries=2)
 

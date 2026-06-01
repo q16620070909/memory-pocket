@@ -17,17 +17,36 @@ def _get_qwen_key():
         import streamlit as st
         return st.secrets["QWEN_API_KEY"]
     except Exception:
-        return os.getenv("QWEN_API_KEY", "sk-3cd556e2ad0647998f5336c8134e5846")
+        return os.getenv("QWEN_API_KEY", "")
 
 # 通义千问 DashScope（OpenAI 兼容，支持 base64 图片）
 client = OpenAI(
     api_key=_get_qwen_key(),
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    timeout=60, max_retries=2,
+    timeout=90, max_retries=3,
 )
 
 VISION_MODEL = "qwen-vl-max"
 TEXT_MODEL = "qwen-plus"
+
+import time
+def _call_ai_with_retry(model, messages, max_tokens=800, temperature=0.3):
+    """带重试的 AI 调用，处理频率限制。"""
+    for attempt in range(4):
+        try:
+            return client.chat.completions.create(
+                model=model, messages=messages,
+                temperature=temperature, max_tokens=max_tokens,
+            )
+        except Exception as e:
+            err = str(e)
+            if "Throttling" in err or "RateLimit" in err or "429" in err or "Too Many Requests" in err:
+                wait = 2 ** attempt  # 1, 2, 4, 8 秒
+                if attempt < 3:
+                    time.sleep(wait)
+                    continue
+            raise
+    raise Exception("重试耗尽")
 
 # ============================================================
 # 标签配置管理
@@ -216,17 +235,13 @@ def analyze_image(image_path: str) -> dict:
     data_url = f"data:{mime_type};base64,{image_data}"
 
     try:
-        response = client.chat.completions.create(
-            model=VISION_MODEL,
-            messages=[
-                {"role":"system","content":_build_prompt(SYSTEM_PROMPT_VISION)},
-                {"role":"user","content":[
-                    {"type":"image_url","image_url":{"url":data_url}},
-                    {"type":"text","text":"看这张图，返回JSON。"}
-                ]}
-            ],
-            temperature=0.3, max_tokens=1000,
-        )
+        response = _call_ai_with_retry(VISION_MODEL, [
+            {"role":"system","content":_build_prompt(SYSTEM_PROMPT_VISION)},
+            {"role":"user","content":[
+                {"type":"image_url","image_url":{"url":data_url}},
+                {"type":"text","text":"看这张图，返回JSON。"}
+            ]}
+        ], max_tokens=1000)
         result_text = response.choices[0].message.content.strip()
         if result_text.startswith("```"): result_text = result_text.split("\n",1)[1].rstrip("```")
         result = json.loads(result_text)
@@ -250,14 +265,10 @@ def analyze_image(image_path: str) -> dict:
 def analyze_text(text: str) -> dict:
     """分析一段纯文字 → 类型+标签+信息。用于文字输入和语音转录后处理。"""
     try:
-        response = client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=[
-                {"role":"system","content":_build_prompt(SYSTEM_PROMPT_TEXT)},
-                {"role":"user","content":f"以下是用户输入的文字：\n\n{text}\n\n分析并返回JSON。"}
-            ],
-            temperature=0.3, max_tokens=800,
-        )
+        response = _call_ai_with_retry(TEXT_MODEL, [
+            {"role":"system","content":_build_prompt(SYSTEM_PROMPT_TEXT)},
+            {"role":"user","content":f"以下是用户输入的文字：\n\n{text}\n\n分析并返回JSON。"}
+        ], max_tokens=800)
         result_text = response.choices[0].message.content.strip()
         if result_text.startswith("```"): result_text = result_text.split("\n",1)[1].rstrip("```")
         return json.loads(result_text)
@@ -290,7 +301,7 @@ def analyze_batch(image_paths: list[str]) -> dict:
         })
 
     try:
-        response = client.chat.completions.create(
+        response = _call_ai_with_retry(
             model=VISION_MODEL,
             messages=[
                 {"role":"system","content":SYSTEM_PROMPT_BATCH},
@@ -364,7 +375,7 @@ def find_relationships(target_memory: dict, all_memories: list[dict]) -> list[di
     } for m in all_memories if m["id"] != target_memory["id"]], ensure_ascii=False)
 
     try:
-        response = client.chat.completions.create(
+        response = _call_ai_with_retry(
             model=TEXT_MODEL,
             messages=[{
                 "role":"user",
@@ -390,7 +401,7 @@ def generate_daily_summary(memories: list[dict]) -> str:
     ])
 
     try:
-        response = client.chat.completions.create(
+        response = _call_ai_with_retry(
             model=TEXT_MODEL,
             messages=[{
                 "role":"user",
@@ -506,7 +517,7 @@ def analyze_image_two_pass(image_path: str) -> dict:
 
     try:
         # ---- 第1轮：看图识别 ----
-        r1 = client.chat.completions.create(
+        r1 = _call_ai_with_retry(
             model=VISION_MODEL,
             messages=[
                 {"role":"system","content":ROUND1_PROMPT},
@@ -528,7 +539,7 @@ def analyze_image_two_pass(image_path: str) -> dict:
         # 把第1轮看到的内容告诉第2轮，让它知道上下文
         context = f"第1轮分析结果：这是一张{detected_type}。图中包含：{description}。可提取：{', '.join(extractable)}。现在精确提取信息。"
 
-        r2 = client.chat.completions.create(
+        r2 = _call_ai_with_retry(
             model=VISION_MODEL,
             messages=[
                 {"role":"system","content":r2_prompt},
@@ -636,7 +647,7 @@ def analyze_image_conversation(image_path: str, chat_history: list[dict] | None 
         })
 
     try:
-        response = client.chat.completions.create(
+        response = _call_ai_with_retry(
             model=VISION_MODEL,
             messages=messages,
             temperature=0.5 if is_first_turn else 0.3,
